@@ -1,4 +1,5 @@
 # Glossary
+
 - Glade: the finite land available to explore and modify.
 - Block: one cube of a material occupying a cell.
 - Cell: one location in the glade.

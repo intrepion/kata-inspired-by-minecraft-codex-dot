@@ -1,65 +1,657 @@
-import * as THREE from 'three';
-import {Game,World,items,recipes,encodeSave,decodeSave,SIZE,HEIGHT,type Item,type Block,type Point,type Recipe} from './model';
-import './style.css';
-const colors:Record<Block,string>={air:'#000000',grass:'#7ba961',dirt:'#936a48',stone:'#929da0',wood:'#a77847',leaf:'#508765',board:'#d5ab6d',glow:'#f6c978',bedrock:'#4a5359'};
-const labels:Record<Item,string>={wood:'Timber',stone:'Stone',dirt:'Earth',board:'Boards',glow:'Glow',leaf:'Leaves'};
-const slots:Item[]=['wood','stone','dirt','board','glow','leaf'];
-const app=document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML=`<div id="brand"><small>A small world. A new beginning.</small><strong>Hearthwild</strong></div><aside id="journey" class="glass"></aside><div id="top"><button id="craft">Craft · E</button><button id="pause">Pause · Esc</button></div><div id="crosshair"></div><div id="target"></div><div id="toast" role="status"></div><div id="bottom"><div id="hotbar" class="glass"></div><p id="hint">WASD move · Mouse / arrows look · Space jump · Click / F gather · Right click / G place · 1–6 select</p></div><div id="touch"><div class="pad"><span></span><button data-key="KeyW">↑</button><span></span><button data-key="KeyA">←</button><button data-key="KeyS">↓</button><button data-key="KeyD">→</button></div><div class="actions"><button id="touch-mine">Gather</button><button id="touch-place">Place</button><button data-key="Space">Jump</button></div></div><div id="modal"></div>`;
-const el=(id:string)=>document.getElementById(id)!;
-let game=new Game(),player:Point=game.world.safeSpawn();
-let saveMessage='Your glade saves automatically.';
-const SAVE='hearthwild.save.v1',BACKUP=SAVE+'.backup';
-try{const raw=localStorage.getItem(SAVE);if(raw){const loaded=decodeSave(raw)??decodeSave(localStorage.getItem(BACKUP)??'');if(loaded){game=loaded.game;player=loaded.player;saveMessage='Welcome back. Your glade remembers.';}else saveMessage='A damaged save was ignored. A fresh glade is ready.';}}catch{saveMessage='Storage unavailable. This visit cannot be saved.';}
-let active=false,mode='welcome',selected:Item='wood',yaw=0,pitch=-.08,velocityY=0,grounded=false,lastTime=0,lastSave=0,dirty=false,sensitivity=.0022,sound=true,toastUntil=0;
-const keys=new Set<string>();
-const scene=new THREE.Scene();scene.background=new THREE.Color('#b9d7d1');scene.fog=new THREE.Fog('#b9d7d1',22,65);
-const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.05,110);
-const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.outputColorSpace=THREE.SRGBColorSpace;app.prepend(renderer.domElement);
-scene.add(new THREE.HemisphereLight('#fff2ce','#425c54',2.1));const sun=new THREE.DirectionalLight('#ffdfaa',2.6);sun.position.set(-15,35,15);scene.add(sun);
-const sunMesh=new THREE.Mesh(new THREE.SphereGeometry(2,16,12),new THREE.MeshBasicMaterial({color:'#fff0bd'}));sunMesh.position.set(-24,35,-35);scene.add(sunMesh);
-// Deterministic, original hand-sized pixel textures; no external art assets.
-function material(block:Block){const c=document.createElement('canvas');c.width=c.height=16;const ctx=c.getContext('2d')!;ctx.fillStyle=colors[block];ctx.fillRect(0,0,16,16);for(let y=0;y<16;y++)for(let x=0;x<16;x++){const n=(x*31+y*17+x*y*7)%23;ctx.fillStyle=n<5?'#ffffff19':'#00000012';if(n<9)ctx.fillRect(x,y,1,1);}if(block==='board'||block==='wood'){ctx.fillStyle='#34291740';for(let x=0;x<16;x+=4)ctx.fillRect(x,0,1,16);if(block==='board')ctx.fillRect(0,8,16,1);}if(block==='glow'){ctx.fillStyle='#fff1b9';ctx.fillRect(4,4,8,8);ctx.fillStyle='#6c4b27';ctx.strokeRect(1,1,14,14);}const texture=new THREE.CanvasTexture(c);texture.magFilter=THREE.NearestFilter;texture.minFilter=THREE.NearestFilter;texture.colorSpace=THREE.SRGBColorSpace;return new THREE.MeshLambertMaterial({map:texture,emissive:block==='glow'?'#e9a24c':'#000000',emissiveIntensity:block==='glow'?.7:0});}
-const materials=new Map<Block,THREE.Material>();for(const b of Object.keys(colors) as Block[])if(b!=='air')materials.set(b,material(b));
-const terrain=new THREE.Group();scene.add(terrain);
-const faces=[{n:[1,0,0],v:[[1,0,1],[1,0,0],[1,1,0],[1,1,1]]},{n:[-1,0,0],v:[[0,0,0],[0,0,1],[0,1,1],[0,1,0]]},{n:[0,1,0],v:[[0,1,1],[1,1,1],[1,1,0],[0,1,0]]},{n:[0,-1,0],v:[[0,0,0],[1,0,0],[1,0,1],[0,0,1]]},{n:[0,0,1],v:[[0,0,1],[1,0,1],[1,1,1],[0,1,1]]},{n:[0,0,-1],v:[[1,0,0],[0,0,0],[0,1,0],[1,1,0]]}];
-const glowLights:THREE.PointLight[]=[];
-function rebuild(){for(const mesh of [...terrain.children]){terrain.remove(mesh);(mesh as THREE.Mesh).geometry.dispose();}for(const l of glowLights)scene.remove(l);glowLights.length=0;
- const buffers=new Map<Block,{p:number[];n:number[];uv:number[]}>();
- for(const [k,b] of game.world.cells){const [x,y,z]=k.split(',').map(Number);let buf=buffers.get(b);if(!buf){buf={p:[],n:[],uv:[]};buffers.set(b,buf);}for(const face of faces){const [nx,ny,nz]=face.n;if(game.world.get(x+nx,y+ny,z+nz)!=='air')continue;for(const i of [0,1,2,0,2,3]){const v=face.v[i];buf.p.push(x+v[0],y+v[1],z+v[2]);buf.n.push(nx,ny,nz);buf.uv.push(...[[0,0],[1,0],[1,1],[0,1]][i]);}}if(b==='glow'&&glowLights.length<12){const l=new THREE.PointLight('#ffd07a',5,9,2);l.position.set(x+.5,y+1.2,z+.5);scene.add(l);glowLights.push(l);}}
- for(const [b,buf] of buffers){const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(buf.p,3));geo.setAttribute('normal',new THREE.Float32BufferAttribute(buf.n,3));geo.setAttribute('uv',new THREE.Float32BufferAttribute(buf.uv,2));geo.computeBoundingSphere();terrain.add(new THREE.Mesh(geo,materials.get(b)));}}
-rebuild();
-const outline=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.008,1.008,1.008)),new THREE.LineBasicMaterial({color:'#fff0a7'}));scene.add(outline);outline.visible=false;
-const raycaster=new THREE.Raycaster();raycaster.far=5;
-let target:{cell:Point;adjacent:Point;block:Block}|null=null;
-function targeting(){raycaster.setFromCamera(new THREE.Vector2(0,0),camera);const hit=raycaster.intersectObjects(terrain.children)[0];target=null;outline.visible=false;if(hit?.face){const n=hit.face.normal;const p=hit.point.clone().addScaledVector(n,-.01);const cell={x:Math.floor(p.x),y:Math.floor(p.y),z:Math.floor(p.z)};target={cell,adjacent:{x:cell.x+n.x,y:cell.y+n.y,z:cell.z+n.z},block:game.world.get(cell.x,cell.y,cell.z)};outline.position.set(cell.x+.5,cell.y+.5,cell.z+.5);outline.visible=active;}el('target').textContent=active&&target?`${target.block==='grass'?'Meadow':target.block==='wood'?'Timber':target.block==='stone'&&!game.pick?'Stone · craft a pick':target.block} · ${game.inventory[selected]} ${labels[selected].toLowerCase()} carried`:'';}
-let audio:AudioContext|undefined;
-function tone(place=false){if(!sound)return;try{audio??=new AudioContext();void audio.resume();const o=audio.createOscillator(),g=audio.createGain();o.type='triangle';o.frequency.setValueAtTime(place?420:160,audio.currentTime);o.frequency.exponentialRampToValueAtTime(place?230:65,audio.currentTime+.12);g.gain.setValueAtTime(.055,audio.currentTime);g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+.15);o.connect(g);g.connect(audio.destination);o.start();o.stop(audio.currentTime+.16);}catch{/* Audio is optional. */}}
-function toast(message:string){el('toast').textContent=message;el('toast').style.opacity='1';toastUntil=performance.now()+2600;}
-function persist(){try{const raw=encodeSave(game,player);if(!decodeSave(raw))throw new Error('Invalid game state');const old=localStorage.getItem(SAVE);if(old&&decodeSave(old))localStorage.setItem(BACKUP,old);localStorage.setItem(SAVE,raw);dirty=false;}catch{toast('Save unavailable. Keep this tab open to continue.');}}
-function changed(){dirty=true;rebuild();hud();persist();}
-let actionTime=0;
-function interact(place=false){if(!active)return;const now=performance.now();if(now-actionTime<220)return;actionTime=now;targeting();if(!target){toast('Move closer and aim at a block.');return;}if(place){if(game.place(target.adjacent,selected,player)){tone(true);changed();}else toast('Cannot place here: occupied, outside the glade, or no blocks carried.');}else{if(game.mine(target.cell)){tone();changed();}else toast(target.block==='stone'?'Craft a stoneworker pick first.':'The foundation stays in place.');}}
-function hud(){el('hotbar').innerHTML=slots.map((item,i)=>`<button class="slot ${selected===item?'selected':''}" data-item="${item}" aria-label="Select ${labels[item]}"><em>${i+1}</em><b>${game.inventory[item]}</b><span class="swatch" style="background:${colors[item]}"></span>${labels[item]}</button>`).join('');el('hotbar').querySelectorAll<HTMLButtonElement>('button').forEach(b=>b.onclick=()=>{selected=b.dataset.item as Item;hud();});const steps=[game.inventory.wood>=4||game.inventory.board>0||game.pick,game.pick,game.inventory.stone>0||game.placedGlow>0,game.placedBoards>=6,game.placedGlow>=1];const texts=['Gather timber near the clearing','Craft boards, then a pick','Gather stone along the low ridge','Build a nook: place 6 boards','Craft and place an amber glow'];el('journey').innerHTML=`<small>${steps.every(Boolean)?'Make yourself at home':'Your first hearth'}</small><h3>${steps.every(Boolean)?'The glade is yours.':'From forest to home'}</h3>${texts.map((t,i)=>`<p class="${steps[i]?'done':''}">${steps[i]?'✓':'○'} ${t}</p>`).join('')}<p>${game.pick?'⛏ Stoneworker pick equipped':'Timber → boards → pick → stone'}<br>40 × 40 glade · Seed ${game.world.seed}</p>`;}
-function pause(kind='pause'){active=false;keys.clear();mode=kind;document.exitPointerLock?.();el('modal').classList.remove('hidden');renderPanel();persist();}
-function resume(lock=true){active=true;mode='play';keys.clear();el('modal').classList.add('hidden');if(lock&&!matchMedia('(pointer:coarse)').matches){try{const result=renderer.domElement.requestPointerLock();if(result)result.catch(()=>toast('Mouse capture unavailable. Drag to look or use arrow keys.'));}catch{toast('Drag to look or use arrow keys.');}}lastTime=performance.now();}
-function renderPanel(){const panel=el('modal');if(mode==='welcome'){panel.innerHTML=`<section class="panel glass"><small>A peaceful voxel sandbox</small><h1>Make a place<br>of your own.</h1><p>Step into a sunlit glade. Gather what the forest offers, shape a little shelter, and give it a warm amber glow.</p><div class="features"><div><b>01 · Gather</b>Timber waits just ahead.</div><div><b>02 · Shape</b>Boards, a pick, a new home.</div><div><b>03 · Settle</b>A light. A place. Yours.</div></div><div class="row"><button class="primary" id="start">Enter the glade</button><button id="fallback">Play with keyboard / drag look</button></div><p style="font-size:12px">${saveMessage}</p><div class="controls">WASD move · Space jump · Mouse or arrows look<br>Left click / F gather · Right click / G place · 1–6 select · E craft<br>Esc pause · R return to clearing · On touch: drag the sky to look.</div></section>`;el('start').onclick=()=>resume();el('fallback').onclick=()=>resume(false);return;}
- if(mode==='craft'){panel.innerHTML=`<section class="panel glass"><small>Made from the glade</small><h2>Your pack & workbench</h2><div class="inventory-grid">${items.map(i=>`<div>${labels[i]} <b>${game.inventory[i]}</b></div>`).join('')}</div>${(Object.keys(recipes) as Recipe[]).map(id=>{const r=recipes[id],cost=Object.entries(r.cost).map(([i,n])=>`${n} ${labels[i as Item].toLowerCase()}`).join(' + ');const can=Object.entries(r.cost).every(([i,n])=>game.inventory[i as Item]>=n)&&!(id==='pick'&&game.pick);return `<div class="recipe"><div><b>${r.label}</b><span>${cost} → ${id==='boards'?'8 boards':id==='glow'?'2 glow blocks':game.pick?'equipped':'permanent stone tool'}</span></div><button data-recipe="${id}" ${can?'':'disabled'}>Craft</button></div>`;}).join('')}<p style="font-size:12px">A pick unlocks stone. Place six boards as walls and a roof, then add a glow. Building stays freeform.</p><button id="resume" class="primary">Back to the glade · E</button></section>`;panel.querySelectorAll<HTMLButtonElement>('[data-recipe]').forEach(b=>b.onclick=()=>{if(game.craft(b.dataset.recipe as Recipe)){dirty=true;tone(true);hud();persist();renderPanel();}});
- }else{panel.innerHTML=`<section class="panel glass"><small>The glade can wait</small><h2>A moment by the hearth.</h2><p>${saveMessage}</p><label>Look sensitivity <input id="sensitivity" aria-label="Look sensitivity" type="range" min="0.0007" max="0.005" step="0.0001" value="${sensitivity}"></label><label><input id="sound" type="checkbox" ${sound?'checked':''}> Original woodland tones</label><div class="row"><button id="resume" class="primary">Resume</button><button id="recover">Return to clearing</button><button id="fresh">Start a fresh glade</button></div><div class="controls">WASD move · Space jump · Arrows look · F gather · G place<br>E workbench · 1–6 hotbar · R recover · Esc pause<br>Edits and your pack save locally. No enemies, hunger or time limit.</div></section>`;el('sensitivity').oninput=e=>{sensitivity=Number((e.target as HTMLInputElement).value);};el('sound').onchange=e=>{sound=(e.target as HTMLInputElement).checked;};el('recover').onclick=()=>{recover();resume(false);};el('fresh').onclick=()=>{panel.innerHTML=`<section class="panel glass"><h2>A new beginning?</h2><p>This replaces your current glade and pack on this browser.</p><div class="row"><button id="confirmfresh">Yes, begin again</button><button id="cancel">Keep my glade</button></div></section>`;el('cancel').onclick=renderPanel;el('confirmfresh').onclick=()=>{game=new Game();player=game.world.safeSpawn();velocityY=0;yaw=0;pitch=-.08;changed();resume(false);};};}
- el('resume').onclick=()=>resume(false);}
-function recover(){player=game.world.safeSpawn();velocityY=0;dirty=true;persist();toast('Back in a clear spot. Your pack is safe.');}
-el('craft').onclick=()=>active?pause('craft'):mode==='craft'?resume(false):pause('craft');el('pause').onclick=()=>active?pause():resume(false);
-window.addEventListener('keydown',e=>{if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab'].includes(e.code))e.preventDefault();if(e.repeat)return;if(e.code==='Escape'){if(active)pause();else if(mode!=='welcome')resume(false);return;}if(e.code==='KeyE'){if(active)pause('craft');else if(mode==='craft')resume(false);return;}if(!active)return;keys.add(e.code);if(e.code==='KeyR')recover();if(e.code==='KeyF')interact();if(e.code==='KeyG')interact(true);const digit=Number(e.key);if(digit>=1&&digit<=6){selected=slots[digit-1];hud();}});
-window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{if(active)pause();});document.addEventListener('visibilitychange',()=>{if(document.hidden&&active)pause();});document.addEventListener('pointerlockchange',()=>{if(!document.pointerLockElement&&active)pause();});document.addEventListener('pointerlockerror',()=>toast('Use arrow keys or drag to look.'));
-let dragging=false,dragX=0,dragY=0,dragDistance=0;
-renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());renderer.domElement.addEventListener('pointerdown',e=>{if(!active)return;if(document.pointerLockElement){interact(e.button===2);return;}if(e.button===2){interact(true);return;}dragging=true;dragDistance=0;dragX=e.clientX;dragY=e.clientY;renderer.domElement.setPointerCapture(e.pointerId);});renderer.domElement.addEventListener('pointermove',e=>{if(!active)return;let dx=0,dy=0;if(document.pointerLockElement){dx=e.movementX;dy=e.movementY;}else if(dragging){dx=e.clientX-dragX;dy=e.clientY-dragY;dragX=e.clientX;dragY=e.clientY;dragDistance+=Math.abs(dx)+Math.abs(dy);}yaw-=dx*sensitivity;pitch=Math.max(-1.5,Math.min(1.5,pitch-dy*sensitivity));});renderer.domElement.addEventListener('pointerup',()=>{if(dragging&&dragDistance<5&&!matchMedia('(pointer:coarse)').matches)interact();dragging=false;});
-window.addEventListener('wheel',e=>{if(!active)return;selected=slots[(slots.indexOf(selected)+(e.deltaY>0?1:5))%6];hud();},{passive:true});
-el('touch').querySelectorAll<HTMLButtonElement>('[data-key]').forEach(b=>{b.onpointerdown=e=>{e.preventDefault();if(active)keys.add(b.dataset.key!);b.setPointerCapture(e.pointerId);};b.onpointerup=b.onpointercancel=()=>keys.delete(b.dataset.key!);});el('touch-mine').onclick=()=>interact();el('touch-place').onclick=()=>interact(true);
-function physics(dt:number){const forward=(keys.has('KeyW')?1:0)-(keys.has('KeyS')?1:0),right=(keys.has('KeyD')?1:0)-(keys.has('KeyA')?1:0);const norm=Math.max(1,Math.hypot(forward,right));const speed=keys.has('ShiftLeft')?5.5:3.7;const dx=(-Math.sin(yaw)*forward+Math.cos(yaw)*right)*speed*dt/norm,dz=(-Math.cos(yaw)*forward-Math.sin(yaw)*right)*speed*dt/norm;
- if(keys.has('ArrowLeft'))yaw+=dt*1.6;if(keys.has('ArrowRight'))yaw-=dt*1.6;if(keys.has('ArrowUp'))pitch=Math.min(1.5,pitch+dt*1.3);if(keys.has('ArrowDown'))pitch=Math.max(-1.5,pitch-dt*1.3);
- if(grounded&&keys.has('Space')){velocityY=7;grounded=false;}velocityY-=19*dt;
- const move=(axis:'x'|'y'|'z',delta:number)=>{const next={...player,[axis]:player[axis]+delta};if(!game.world.collides(next)){player=next;return true;}return false;};move('x',dx);move('z',dz);if(!move('y',velocityY*dt)){grounded=velocityY<0;velocityY=0;}else grounded=false;if(player.y<1||player.y>HEIGHT+5)recover();if(dx||dz||velocityY)dirty=true;
+import * as THREE from "three";
+import {
+  Game,
+  World,
+  items,
+  recipes,
+  encodeSave,
+  decodeSave,
+  SIZE,
+  HEIGHT,
+  type Item,
+  type Block,
+  type Point,
+  type Recipe,
+} from "./model";
+import "./style.css";
+const colors: Record<Block, string> = {
+  air: "#000000",
+  grass: "#7ba961",
+  dirt: "#936a48",
+  stone: "#929da0",
+  wood: "#a77847",
+  leaf: "#508765",
+  board: "#d5ab6d",
+  glow: "#f6c978",
+  bedrock: "#4a5359",
+};
+const labels: Record<Item, string> = {
+  wood: "Timber",
+  stone: "Stone",
+  dirt: "Earth",
+  board: "Boards",
+  glow: "Glow",
+  leaf: "Leaves",
+};
+const slots: Item[] = ["wood", "stone", "dirt", "board", "glow", "leaf"];
+const app = document.querySelector<HTMLDivElement>("#app")!;
+app.innerHTML = `<div id="brand"><small>A small world. A new beginning.</small><strong>Hearthwild</strong></div><aside id="journey" class="glass"></aside><div id="top"><button id="craft">Craft · E</button><button id="pause">Pause · Esc</button></div><div id="crosshair"></div><div id="target"></div><div id="toast" role="status"></div><div id="bottom"><div id="hotbar" class="glass"></div><p id="hint">WASD move · Mouse / arrows look · Space jump · Click / F gather · Right click / G place · 1–6 select</p></div><div id="touch"><div class="pad"><span></span><button data-key="KeyW">↑</button><span></span><button data-key="KeyA">←</button><button data-key="KeyS">↓</button><button data-key="KeyD">→</button></div><div class="actions"><button id="touch-mine">Gather</button><button id="touch-place">Place</button><button data-key="Space">Jump</button></div></div><div id="modal"></div>`;
+const el = (id: string) => document.getElementById(id)!;
+let game = new Game(),
+  player: Point = game.world.safeSpawn();
+let saveMessage = "Your glade saves automatically.";
+const SAVE = "hearthwild.save.v1",
+  BACKUP = SAVE + ".backup";
+try {
+  const raw = localStorage.getItem(SAVE);
+  if (raw) {
+    const loaded =
+      decodeSave(raw) ?? decodeSave(localStorage.getItem(BACKUP) ?? "");
+    if (loaded) {
+      game = loaded.game;
+      player = loaded.player;
+      saveMessage = "Welcome back. Your glade remembers.";
+    } else saveMessage = "A damaged save was ignored. A fresh glade is ready.";
+  }
+} catch {
+  saveMessage = "Storage unavailable. This visit cannot be saved.";
 }
-function animate(now:number){requestAnimationFrame(animate);const dt=Math.min((now-lastTime)/1000||0,.05);lastTime=now;if(active){const steps=Math.max(1,Math.ceil(dt/.012));for(let i=0;i<steps;i++)physics(dt/steps);}camera.position.set(player.x,player.y+1.55,player.z);camera.rotation.order='YXZ';camera.rotation.set(pitch,yaw,0);targeting();if(now>toastUntil)el('toast').style.opacity='0';if(active&&dirty&&now-lastSave>3500){persist();lastSave=now;}renderer.render(scene,camera);}
-window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});window.addEventListener('pagehide',persist);
-hud();renderPanel();requestAnimationFrame(animate);
+let active = false,
+  mode = "welcome",
+  selected: Item = "wood",
+  yaw = 0,
+  pitch = -0.08,
+  velocityY = 0,
+  grounded = false,
+  lastTime = 0,
+  lastSave = 0,
+  dirty = false,
+  sensitivity = 0.0022,
+  sound = true,
+  toastUntil = 0;
+const keys = new Set<string>();
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#b9d7d1");
+scene.fog = new THREE.Fog("#b9d7d1", 22, 65);
+const camera = new THREE.PerspectiveCamera(
+  70,
+  innerWidth / innerHeight,
+  0.05,
+  110,
+);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+app.prepend(renderer.domElement);
+scene.add(new THREE.HemisphereLight("#fff2ce", "#425c54", 2.1));
+const sun = new THREE.DirectionalLight("#ffdfaa", 2.6);
+sun.position.set(-15, 35, 15);
+scene.add(sun);
+const sunMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(2, 16, 12),
+  new THREE.MeshBasicMaterial({ color: "#fff0bd" }),
+);
+sunMesh.position.set(-24, 35, -35);
+scene.add(sunMesh);
+// Deterministic, original hand-sized pixel textures; no external art assets.
+function material(block: Block) {
+  const c = document.createElement("canvas");
+  c.width = c.height = 16;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = colors[block];
+  ctx.fillRect(0, 0, 16, 16);
+  for (let y = 0; y < 16; y++)
+    for (let x = 0; x < 16; x++) {
+      const n = (x * 31 + y * 17 + x * y * 7) % 23;
+      ctx.fillStyle = n < 5 ? "#ffffff19" : "#00000012";
+      if (n < 9) ctx.fillRect(x, y, 1, 1);
+    }
+  if (block === "board" || block === "wood") {
+    ctx.fillStyle = "#34291740";
+    for (let x = 0; x < 16; x += 4) ctx.fillRect(x, 0, 1, 16);
+    if (block === "board") ctx.fillRect(0, 8, 16, 1);
+  }
+  if (block === "glow") {
+    ctx.fillStyle = "#fff1b9";
+    ctx.fillRect(4, 4, 8, 8);
+    ctx.fillStyle = "#6c4b27";
+    ctx.strokeRect(1, 1, 14, 14);
+  }
+  const texture = new THREE.CanvasTexture(c);
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshLambertMaterial({
+    map: texture,
+    emissive: block === "glow" ? "#e9a24c" : "#000000",
+    emissiveIntensity: block === "glow" ? 0.7 : 0,
+  });
+}
+const materials = new Map<Block, THREE.Material>();
+for (const b of Object.keys(colors) as Block[])
+  if (b !== "air") materials.set(b, material(b));
+const terrain = new THREE.Group();
+scene.add(terrain);
+const faces = [
+  {
+    n: [1, 0, 0],
+    v: [
+      [1, 0, 1],
+      [1, 0, 0],
+      [1, 1, 0],
+      [1, 1, 1],
+    ],
+  },
+  {
+    n: [-1, 0, 0],
+    v: [
+      [0, 0, 0],
+      [0, 0, 1],
+      [0, 1, 1],
+      [0, 1, 0],
+    ],
+  },
+  {
+    n: [0, 1, 0],
+    v: [
+      [0, 1, 1],
+      [1, 1, 1],
+      [1, 1, 0],
+      [0, 1, 0],
+    ],
+  },
+  {
+    n: [0, -1, 0],
+    v: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [1, 0, 1],
+      [0, 0, 1],
+    ],
+  },
+  {
+    n: [0, 0, 1],
+    v: [
+      [0, 0, 1],
+      [1, 0, 1],
+      [1, 1, 1],
+      [0, 1, 1],
+    ],
+  },
+  {
+    n: [0, 0, -1],
+    v: [
+      [1, 0, 0],
+      [0, 0, 0],
+      [0, 1, 0],
+      [1, 1, 0],
+    ],
+  },
+];
+const glowLights: THREE.PointLight[] = [];
+function rebuild() {
+  for (const mesh of [...terrain.children]) {
+    terrain.remove(mesh);
+    (mesh as THREE.Mesh).geometry.dispose();
+  }
+  for (const l of glowLights) scene.remove(l);
+  glowLights.length = 0;
+  const buffers = new Map<Block, { p: number[]; n: number[]; uv: number[] }>();
+  for (const [k, b] of game.world.cells) {
+    const [x, y, z] = k.split(",").map(Number);
+    let buf = buffers.get(b);
+    if (!buf) {
+      buf = { p: [], n: [], uv: [] };
+      buffers.set(b, buf);
+    }
+    for (const face of faces) {
+      const [nx, ny, nz] = face.n;
+      if (game.world.get(x + nx, y + ny, z + nz) !== "air") continue;
+      for (const i of [0, 1, 2, 0, 2, 3]) {
+        const v = face.v[i];
+        buf.p.push(x + v[0], y + v[1], z + v[2]);
+        buf.n.push(nx, ny, nz);
+        buf.uv.push(
+          ...[
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 1],
+          ][i],
+        );
+      }
+    }
+    if (b === "glow" && glowLights.length < 12) {
+      const l = new THREE.PointLight("#ffd07a", 5, 9, 2);
+      l.position.set(x + 0.5, y + 1.2, z + 0.5);
+      scene.add(l);
+      glowLights.push(l);
+    }
+  }
+  for (const [b, buf] of buffers) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(buf.p, 3));
+    geo.setAttribute("normal", new THREE.Float32BufferAttribute(buf.n, 3));
+    geo.setAttribute("uv", new THREE.Float32BufferAttribute(buf.uv, 2));
+    geo.computeBoundingSphere();
+    terrain.add(new THREE.Mesh(geo, materials.get(b)));
+  }
+}
+rebuild();
+const outline = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.BoxGeometry(1.008, 1.008, 1.008)),
+  new THREE.LineBasicMaterial({ color: "#fff0a7" }),
+);
+scene.add(outline);
+outline.visible = false;
+const raycaster = new THREE.Raycaster();
+raycaster.far = 5;
+let target: { cell: Point; adjacent: Point; block: Block } | null = null;
+function targeting() {
+  raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+  const hit = raycaster.intersectObjects(terrain.children)[0];
+  target = null;
+  outline.visible = false;
+  if (hit?.face) {
+    const n = hit.face.normal;
+    const p = hit.point.clone().addScaledVector(n, -0.01);
+    const cell = { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) };
+    target = {
+      cell,
+      adjacent: { x: cell.x + n.x, y: cell.y + n.y, z: cell.z + n.z },
+      block: game.world.get(cell.x, cell.y, cell.z),
+    };
+    outline.position.set(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5);
+    outline.visible = active;
+  }
+  el("target").textContent =
+    active && target
+      ? `${target.block === "grass" ? "Meadow" : target.block === "wood" ? "Timber" : target.block === "stone" && !game.pick ? "Stone · craft a pick" : target.block} · ${game.inventory[selected]} ${labels[selected].toLowerCase()} carried`
+      : "";
+}
+let audio: AudioContext | undefined;
+function tone(place = false) {
+  if (!sound) return;
+  try {
+    audio ??= new AudioContext();
+    void audio.resume();
+    const o = audio.createOscillator(),
+      g = audio.createGain();
+    o.type = "triangle";
+    o.frequency.setValueAtTime(place ? 420 : 160, audio.currentTime);
+    o.frequency.exponentialRampToValueAtTime(
+      place ? 230 : 65,
+      audio.currentTime + 0.12,
+    );
+    g.gain.setValueAtTime(0.055, audio.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.15);
+    o.connect(g);
+    g.connect(audio.destination);
+    o.start();
+    o.stop(audio.currentTime + 0.16);
+  } catch {
+    /* Audio is optional. */
+  }
+}
+function toast(message: string) {
+  el("toast").textContent = message;
+  el("toast").style.opacity = "1";
+  toastUntil = performance.now() + 2600;
+}
+function persist() {
+  try {
+    const raw = encodeSave(game, player);
+    if (!decodeSave(raw)) throw new Error("Invalid game state");
+    const old = localStorage.getItem(SAVE);
+    if (old && decodeSave(old)) localStorage.setItem(BACKUP, old);
+    localStorage.setItem(SAVE, raw);
+    dirty = false;
+  } catch {
+    toast("Save unavailable. Keep this tab open to continue.");
+  }
+}
+function changed() {
+  dirty = true;
+  rebuild();
+  hud();
+  persist();
+}
+let actionTime = 0;
+function interact(place = false) {
+  if (!active) return;
+  const now = performance.now();
+  if (now - actionTime < 220) return;
+  actionTime = now;
+  targeting();
+  if (!target) {
+    toast("Move closer and aim at a block.");
+    return;
+  }
+  if (place) {
+    if (game.place(target.adjacent, selected, player)) {
+      tone(true);
+      changed();
+    } else
+      toast(
+        "Cannot place here: occupied, outside the glade, or no blocks carried.",
+      );
+  } else {
+    if (game.mine(target.cell)) {
+      tone();
+      changed();
+    } else
+      toast(
+        target.block === "stone"
+          ? "Craft a stoneworker pick first."
+          : "The foundation stays in place.",
+      );
+  }
+}
+function hud() {
+  el("hotbar").innerHTML = slots
+    .map(
+      (item, i) =>
+        `<button class="slot ${selected === item ? "selected" : ""}" data-item="${item}" aria-label="Select ${labels[item]}"><em>${i + 1}</em><b>${game.inventory[item]}</b><span class="swatch" style="background:${colors[item]}"></span>${labels[item]}</button>`,
+    )
+    .join("");
+  el("hotbar")
+    .querySelectorAll<HTMLButtonElement>("button")
+    .forEach(
+      (b) =>
+        (b.onclick = () => {
+          selected = b.dataset.item as Item;
+          hud();
+        }),
+    );
+  const steps = [
+    game.inventory.wood >= 4 || game.inventory.board > 0 || game.pick,
+    game.pick,
+    game.gatheredStone,
+    game.placedBoards >= 6,
+    game.placedGlow >= 1,
+  ];
+  const texts = [
+    "Gather timber near the clearing",
+    "Craft boards, then a pick",
+    "Gather stone along the low ridge",
+    "Build a nook: place 6 boards",
+    "Craft and place an amber glow",
+  ];
+  el("journey").innerHTML =
+    `<small>${steps.every(Boolean) ? "Make yourself at home" : "Your first hearth"}</small><h3>${steps.every(Boolean) ? "The glade is yours." : "From forest to home"}</h3>${texts.map((t, i) => `<p class="${steps[i] ? "done" : ""}">${steps[i] ? "✓" : "○"} ${t}</p>`).join("")}<p>${game.pick ? "⛏ Stoneworker pick equipped" : "Timber → boards → pick → stone"}<br>40 × 40 glade · Seed ${game.world.seed}</p>`;
+}
+function pause(kind = "pause") {
+  active = false;
+  keys.clear();
+  mode = kind;
+  document.exitPointerLock?.();
+  el("modal").classList.remove("hidden");
+  renderPanel();
+  persist();
+}
+function resume(lock = true) {
+  active = true;
+  mode = "play";
+  keys.clear();
+  el("modal").classList.add("hidden");
+  if (lock && !matchMedia("(pointer:coarse)").matches) {
+    try {
+      const result = renderer.domElement.requestPointerLock();
+      if (result)
+        result.catch(() =>
+          toast("Mouse capture unavailable. Drag to look or use arrow keys."),
+        );
+    } catch {
+      toast("Drag to look or use arrow keys.");
+    }
+  }
+  lastTime = performance.now();
+}
+function renderPanel() {
+  const panel = el("modal");
+  if (mode === "welcome") {
+    panel.innerHTML = `<section class="panel glass"><small>A peaceful voxel sandbox</small><h1>Make a place<br>of your own.</h1><p>Step into a sunlit glade. Gather what the forest offers, shape a little shelter, and give it a warm amber glow.</p><div class="features"><div><b>01 · Gather</b>Timber waits just ahead.</div><div><b>02 · Shape</b>Boards, a pick, a new home.</div><div><b>03 · Settle</b>A light. A place. Yours.</div></div><div class="row"><button class="primary" id="start">Enter the glade</button><button id="fallback">Play with keyboard / drag look</button></div><p style="font-size:12px">${saveMessage}</p><div class="controls">WASD move · Space jump · Mouse or arrows look<br>Left click / F gather · Right click / G place · 1–6 select · E craft<br>Esc pause · R return to clearing · On touch: drag the sky to look.</div></section>`;
+    el("start").onclick = () => resume();
+    el("fallback").onclick = () => resume(false);
+    return;
+  }
+  if (mode === "craft") {
+    panel.innerHTML = `<section class="panel glass"><small>Made from the glade</small><h2>Your pack & workbench</h2><div class="inventory-grid">${items.map((i) => `<div>${labels[i]} <b>${game.inventory[i]}</b></div>`).join("")}</div>${(
+      Object.keys(recipes) as Recipe[]
+    )
+      .map((id) => {
+        const r = recipes[id],
+          cost = Object.entries(r.cost)
+            .map(([i, n]) => `${n} ${labels[i as Item].toLowerCase()}`)
+            .join(" + ");
+        const can = game.canCraft(id);
+        return `<div class="recipe"><div><b>${r.label}</b><span>${cost} → ${id === "boards" ? "8 boards" : id === "glow" ? "2 glow blocks" : game.pick ? "equipped" : "permanent stone tool"}</span></div><button data-recipe="${id}" ${can ? "" : "disabled"}>Craft</button></div>`;
+      })
+      .join(
+        "",
+      )}<p style="font-size:12px">A pick unlocks stone. Place six boards as walls and a roof, then add a glow. Building stays freeform.</p><button id="resume" class="primary">Back to the glade · E</button></section>`;
+    panel.querySelectorAll<HTMLButtonElement>("[data-recipe]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          if (game.craft(b.dataset.recipe as Recipe)) {
+            dirty = true;
+            tone(true);
+            hud();
+            persist();
+            renderPanel();
+          }
+        }),
+    );
+  } else {
+    panel.innerHTML = `<section class="panel glass"><small>The glade can wait</small><h2>A moment by the hearth.</h2><p>${saveMessage}</p><label>Look sensitivity <input id="sensitivity" aria-label="Look sensitivity" type="range" min="0.0007" max="0.005" step="0.0001" value="${sensitivity}"></label><label><input id="sound" type="checkbox" ${sound ? "checked" : ""}> Original woodland tones</label><div class="row"><button id="resume" class="primary">Resume</button><button id="recover">Return to clearing</button><button id="fresh">Start a fresh glade</button></div><div class="controls">WASD move · Space jump · Arrows look · F gather · G place<br>E workbench · 1–6 hotbar · R recover · Esc pause<br>Edits and your pack save locally. No enemies, hunger or time limit.</div></section>`;
+    el("sensitivity").oninput = (e) => {
+      sensitivity = Number((e.target as HTMLInputElement).value);
+    };
+    el("sound").onchange = (e) => {
+      sound = (e.target as HTMLInputElement).checked;
+    };
+    el("recover").onclick = () => {
+      recover();
+      resume(false);
+    };
+    el("fresh").onclick = () => {
+      panel.innerHTML = `<section class="panel glass"><h2>A new beginning?</h2><p>This replaces your current glade and pack on this browser.</p><div class="row"><button id="confirmfresh">Yes, begin again</button><button id="cancel">Keep my glade</button></div></section>`;
+      el("cancel").onclick = renderPanel;
+      el("confirmfresh").onclick = () => {
+        game = new Game();
+        player = game.world.safeSpawn();
+        velocityY = 0;
+        yaw = 0;
+        pitch = -0.08;
+        changed();
+        resume(false);
+      };
+    };
+  }
+  el("resume").onclick = () => resume(false);
+}
+function recover() {
+  player = game.world.safeSpawn();
+  velocityY = 0;
+  dirty = true;
+  persist();
+  toast("Back in a clear spot. Your pack is safe.");
+}
+el("craft").onclick = () =>
+  active ? pause("craft") : mode === "craft" ? resume(false) : pause("craft");
+el("pause").onclick = () => (active ? pause() : resume(false));
+window.addEventListener("keydown", (e) => {
+  if (
+    [
+      "Space",
+      "ArrowUp",
+      "ArrowDown",
+      "ArrowLeft",
+      "ArrowRight",
+      "Tab",
+    ].includes(e.code)
+  )
+    e.preventDefault();
+  if (e.repeat) return;
+  if (e.code === "Escape") {
+    if (active) pause();
+    else if (mode !== "welcome") resume(false);
+    return;
+  }
+  if (e.code === "KeyE") {
+    if (active) pause("craft");
+    else if (mode === "craft") resume(false);
+    return;
+  }
+  if (!active) return;
+  keys.add(e.code);
+  if (e.code === "KeyR") recover();
+  if (e.code === "KeyF") interact();
+  if (e.code === "KeyG") interact(true);
+  const digit = Number(e.key);
+  if (digit >= 1 && digit <= 6) {
+    selected = slots[digit - 1];
+    hud();
+  }
+});
+window.addEventListener("keyup", (e) => keys.delete(e.code));
+window.addEventListener("blur", () => {
+  if (active) pause();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && active) pause();
+});
+document.addEventListener("pointerlockchange", () => {
+  if (!document.pointerLockElement && active) pause();
+});
+document.addEventListener("pointerlockerror", () =>
+  toast("Use arrow keys or drag to look."),
+);
+let dragging = false,
+  dragX = 0,
+  dragY = 0,
+  dragDistance = 0;
+renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  if (!active) return;
+  if (document.pointerLockElement) {
+    interact(e.button === 2);
+    return;
+  }
+  if (e.button === 2) {
+    interact(true);
+    return;
+  }
+  dragging = true;
+  dragDistance = 0;
+  dragX = e.clientX;
+  dragY = e.clientY;
+  renderer.domElement.setPointerCapture(e.pointerId);
+});
+renderer.domElement.addEventListener("pointermove", (e) => {
+  if (!active) return;
+  let dx = 0,
+    dy = 0;
+  if (document.pointerLockElement) {
+    dx = e.movementX;
+    dy = e.movementY;
+  } else if (dragging) {
+    dx = e.clientX - dragX;
+    dy = e.clientY - dragY;
+    dragX = e.clientX;
+    dragY = e.clientY;
+    dragDistance += Math.abs(dx) + Math.abs(dy);
+  }
+  yaw -= dx * sensitivity;
+  pitch = Math.max(-1.5, Math.min(1.5, pitch - dy * sensitivity));
+});
+renderer.domElement.addEventListener("pointerup", () => {
+  if (dragging && dragDistance < 5 && !matchMedia("(pointer:coarse)").matches)
+    interact();
+  dragging = false;
+});
+window.addEventListener(
+  "wheel",
+  (e) => {
+    if (!active) return;
+    selected = slots[(slots.indexOf(selected) + (e.deltaY > 0 ? 1 : 5)) % 6];
+    hud();
+  },
+  { passive: true },
+);
+el("touch")
+  .querySelectorAll<HTMLButtonElement>("[data-key]")
+  .forEach((b) => {
+    b.onpointerdown = (e) => {
+      e.preventDefault();
+      if (active) keys.add(b.dataset.key!);
+      b.setPointerCapture(e.pointerId);
+    };
+    b.onpointerup = b.onpointercancel = () => keys.delete(b.dataset.key!);
+  });
+el("touch-mine").onclick = () => interact();
+el("touch-place").onclick = () => interact(true);
+function physics(dt: number) {
+  const forward = (keys.has("KeyW") ? 1 : 0) - (keys.has("KeyS") ? 1 : 0),
+    right = (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0);
+  const norm = Math.max(1, Math.hypot(forward, right));
+  const speed = keys.has("ShiftLeft") ? 5.5 : 3.7;
+  const dx =
+      ((-Math.sin(yaw) * forward + Math.cos(yaw) * right) * speed * dt) / norm,
+    dz =
+      ((-Math.cos(yaw) * forward - Math.sin(yaw) * right) * speed * dt) / norm;
+  if (keys.has("ArrowLeft")) yaw += dt * 1.6;
+  if (keys.has("ArrowRight")) yaw -= dt * 1.6;
+  if (keys.has("ArrowUp")) pitch = Math.min(1.5, pitch + dt * 1.3);
+  if (keys.has("ArrowDown")) pitch = Math.max(-1.5, pitch - dt * 1.3);
+  if (grounded && keys.has("Space")) {
+    velocityY = 7;
+    grounded = false;
+  }
+  velocityY -= 19 * dt;
+  const move = (axis: "x" | "y" | "z", delta: number) => {
+    const next = { ...player, [axis]: player[axis] + delta };
+    if (!game.world.collides(next)) {
+      player = next;
+      return true;
+    }
+    return false;
+  };
+  move("x", dx);
+  move("z", dz);
+  if (!move("y", velocityY * dt)) {
+    grounded = velocityY < 0;
+    velocityY = 0;
+  } else grounded = false;
+  if (player.y < 1 || player.y > HEIGHT + 5) recover();
+  if (dx || dz || velocityY) dirty = true;
+}
+function animate(now: number) {
+  requestAnimationFrame(animate);
+  const dt = Math.min((now - lastTime) / 1000 || 0, 0.05);
+  lastTime = now;
+  if (active) {
+    const steps = Math.max(1, Math.ceil(dt / 0.012));
+    for (let i = 0; i < steps; i++) physics(dt / steps);
+  }
+  camera.position.set(player.x, player.y + 1.55, player.z);
+  camera.rotation.order = "YXZ";
+  camera.rotation.set(pitch, yaw, 0);
+  targeting();
+  if (now > toastUntil) el("toast").style.opacity = "0";
+  if (active && dirty && now - lastSave > 3500) {
+    persist();
+    lastSave = now;
+  }
+  renderer.render(scene, camera);
+}
+window.addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+window.addEventListener("pagehide", persist);
+hud();
+renderPanel();
+requestAnimationFrame(animate);
