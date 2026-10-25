@@ -36,3 +36,7 @@ npm audit --audit-level=moderate
 See [verification](docs/VERIFICATION.md), [acceptance criteria and delegated decisions](docs/SPEC.md), [glossary](GLOSSARY.md), and [architecture decision](docs/adr/0001-finite-world-and-save.md).
 
 ![Built glade](docs/screenshots/built-glade.jpg)
+
+## Play online
+
+[Play the hosted game](https://intrepion.github.io/kata-inspired-by-minecraft-codex-dot/)
