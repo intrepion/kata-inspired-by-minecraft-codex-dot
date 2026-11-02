@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "gameId": "kata-inspired-by-minecraft-codex-dot",
+  "playUrl": "https://intrepion.github.io/kata-inspired-by-minecraft-codex-dot/",
+  "screenshots": [
+    {
+      "path": "arcade/screenshots/view-01.jpg",
+      "sha256": "103efcb0f7480e5ca505ad2167e016faa7bca14b932a09f73dbb5a749df19b9b",
+      "alt": "Gameplay capture 1",
+      "provenance": {
+        "kind": "existing_repository_capture",
+        "sourcePath": "docs/screenshots/built-glade.jpg",
+        "deployedBuild": null,
+        "captureDate": null
+      }
+    }
+  ]
+}
