@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "gameId": "kata-inspired-by-minecraft-codex-dot",
   "playUrl": "https://intrepion.github.io/kata-inspired-by-minecraft-codex-dot/",
   "screenshots": [
@@ -12,6 +12,46 @@
         "sourcePath": "docs/screenshots/built-glade.jpg",
         "deployedBuild": null,
         "captureDate": null
+      }
+    },
+    {
+      "path": "arcade/screenshots/ci-20261102-01.jpg",
+      "sha256": "65e4df39986080db5b82411d1c4766bc7ef0c6b38cd5c2f0b3c0d8c8f56fbd99",
+      "alt": "Hearthwild gameplay, view 1",
+      "provenance": {
+        "kind": "ci_gameplay_capture",
+        "sourcePath": "arcade/capture-evidence/ci-20261102-01.png",
+        "sourceSha256": "613321b142691dc20f269d10a6664715975f8aad8bc0823811ca469627d2a892",
+        "captureCommit": "c487d40d64cce5180c5a6782756f546ec1e9f3e8",
+        "workflowRunId": "41416809787",
+        "inputHashes": {
+          "index.html": "2b23e63e1d581a0224ae3971f1c0e84b3752ed070698b3886946fe09d55dfd78",
+          "assets/index-3bFBhnPi.js": "c9af0a9fc51be2459dcb52725f0b0b2c5d3364ec45feae1eca58e989efad14a0",
+          "assets/index-BZOQBApt.css": "e2c781249827833ebeef4fa670beeda670653e5710b4e247a97fc2083d5a9828"
+        },
+        "publishedFilesVerifiedAt": "2026-11-02T19:01:20Z",
+        "captureRecordPath": "arcade/capture-evidence/ci-20261102-record.json",
+        "captureRecordSha256": "ba74708fe08a347849b40356259b417115accdf2d4d9b82e5c6045e682164f6f"
+      }
+    },
+    {
+      "path": "arcade/screenshots/ci-20261102-02.jpg",
+      "sha256": "f9724abaeea2295f3e77c01a83c0787f5d0b0c118ea89fb70e6bccb499da5b66",
+      "alt": "Hearthwild gameplay, view 2",
+      "provenance": {
+        "kind": "ci_gameplay_capture",
+        "sourcePath": "arcade/capture-evidence/ci-20261102-02.png",
+        "sourceSha256": "344791048890459faa5c9446513a6739d71c2b2d3b65f341bd1cd42fee279ca6",
+        "captureCommit": "c487d40d64cce5180c5a6782756f546ec1e9f3e8",
+        "workflowRunId": "41416809787",
+        "inputHashes": {
+          "index.html": "2b23e63e1d581a0224ae3971f1c0e84b3752ed070698b3886946fe09d55dfd78",
+          "assets/index-3bFBhnPi.js": "c9af0a9fc51be2459dcb52725f0b0b2c5d3364ec45feae1eca58e989efad14a0",
+          "assets/index-BZOQBApt.css": "e2c781249827833ebeef4fa670beeda670653e5710b4e247a97fc2083d5a9828"
+        },
+        "publishedFilesVerifiedAt": "2026-11-02T19:01:20Z",
+        "captureRecordPath": "arcade/capture-evidence/ci-20261102-record.json",
+        "captureRecordSha256": "ba74708fe08a347849b40356259b417115accdf2d4d9b82e5c6045e682164f6f"
       }
     }
   ]

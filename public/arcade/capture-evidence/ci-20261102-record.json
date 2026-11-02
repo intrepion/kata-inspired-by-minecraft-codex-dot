@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "workflowCommit": "31d43a721bad8bc3fcdbf5a6a92695fe2d9ebda8",
+  "sourceCommit": "c487d40d64cce5180c5a6782756f546ec1e9f3e8",
+  "runId": "41416809787",
+  "url": "http://127.0.0.1:4244/",
+  "inputs": {
+    "index.html": "2b23e63e1d581a0224ae3971f1c0e84b3752ed070698b3886946fe09d55dfd78",
+    "assets/index-3bFBhnPi.js": "c9af0a9fc51be2459dcb52725f0b0b2c5d3364ec45feae1eca58e989efad14a0",
+    "assets/index-BZOQBApt.css": "e2c781249827833ebeef4fa670beeda670653e5710b4e247a97fc2083d5a9828"
+  },
+  "browser": "153.0.8010.12",
+  "viewport": {
+    "width": 1280,
+    "height": 1000
+  },
+  "screenshots": [
+    "hearthwild-01.png",
+    "hearthwild-02.png"
+  ]
+}
