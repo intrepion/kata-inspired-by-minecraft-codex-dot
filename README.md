@@ -1,5 +1,7 @@
 # Hearthwild
 
+[Kata Arcade](https://intrepion.github.io/)
+
 An original peaceful voxel sandbox: gather timber, craft boards and a stoneworker pick, gather stone, build a nook, and place amber glow. Original generated pixel textures and synthesized tones; no Mojang assets or branding. Private repository, local browser play, no public deployment.
 
 ## Play locally
