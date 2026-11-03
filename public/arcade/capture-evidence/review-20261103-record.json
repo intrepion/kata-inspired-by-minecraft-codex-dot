@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "workflowCommit": "2976c8fa87b6fe3785a742c0b0406380f39a41e5",
+  "sourceCommit": "2976c8fa87b6fe3785a742c0b0406380f39a41e5",
+  "runId": "41675302931",
+  "url": "http://127.0.0.1:4280/",
+  "inputs": {
+    "index.html": "2f3bddf6257a4b92012a266f50346abcb844f6447cc2fed4a49becbc88d77164",
+    "assets/index-BZOQBApt.css": "e2c781249827833ebeef4fa670beeda670653e5710b4e247a97fc2083d5a9828",
+    "assets/index-F0rBp5Du.js": "7fae8142609fdbf952f0a58d6efd720c636ef42f720057bac1bae49c79f54aac"
+  },
+  "browser": "153.0.8010.12",
+  "viewport": {
+    "width": 1280,
+    "height": 1000
+  },
+  "screenshots": [
+    "creative-01.png",
+    "creative-02.png"
+  ]
+}
