@@ -44,3 +44,11 @@ See [verification](docs/VERIFICATION.md), [acceptance criteria and delegated dec
 ## Arcade metadata
 
 See [docs/arcade-metadata.md](docs/arcade-metadata.md) for the game-owned manifest and screenshot provenance.
+
+## Optional Creative building
+
+Pause and enable **Creative building · unlimited blocks & flight**. All six hotbar materials become unlimited. Gathering removes blocks immediately, including stone without a pick, without adding to the stored pack. Crafting is unnecessary in this mode. Hold Space to rise, Ctrl to descend, or release both to hover; touch controls add Descend beside Jump / Rise. Ordinary body collision, the foundation and finite world edges remain active. Flight stops at a save-compatible height cap.
+
+The original gathering mode remains the default for old saves and new glades. Turning Creative off restores finite inventory and gravity; it preserves your stored pack. Edits made in Creative stay in the shared world, so placed blocks can later be gathered in ordinary mode. This is a building option, not a resource-separated challenge or a full Minecraft reproduction. The [official Minecraft mode comparison](https://www.minecraft.net/en-us/article/creative-vs-survival-mode) establishes unlimited materials and flight as Creative features. The 40×40 world, six materials and limited crafting remain unchanged; there is still no health, hunger, combat, mob simulation or streaming terrain.
+
+Review verification: 14 tests, typecheck and production build pass, using existing workspace dependencies (Vitest 5.0.3, Vite 8.3.4) through a temporary symlink removed after testing; no fresh lockfile install was run. Tests cover free placement, stone removal, preserved inventory, collision, immutable foundation, flight/hover/ceiling/floor/cap, old saves and malformed mode values. Browser checks at `http://127.0.0.1:18787/` enabled Creative, placed a board from an empty pack, rose above the clearing, descended to the board, reloaded with the mode and edit retained, and returned to gathering with all original inventory counts still zero. Touch controls and physical multitouch were not tested. The build retains its existing >500 kB chunk warning.

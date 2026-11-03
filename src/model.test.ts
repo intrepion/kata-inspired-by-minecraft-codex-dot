@@ -121,3 +121,79 @@ it("gathered stone stays completed after spending it, and mined building blocks 
     decodeSave(encodeSave(g, g.world.safeSpawn()))?.game.gatheredStone,
   ).toBe(true);
 });
+import { flightStep, HEIGHT } from "./model";
+it("creative builds all materials without a pack and removes stone without a pick", () => {
+  const g = new Game();
+  g.creative = true;
+  g.inventory.wood = 3;
+  for (const [i, item] of [
+    "dirt",
+    "stone",
+    "wood",
+    "leaf",
+    "board",
+    "glow",
+  ].entries())
+    expect(
+      g.place({ x: 15 + i, y: 5, z: 21 }, item as never, {
+        x: 22.5,
+        y: 5,
+        z: 20.5,
+      }),
+    ).toBe(true);
+  expect(g.inventory.wood).toBe(3);
+  expect(g.inventory.board).toBe(0);
+  expect(g.mine({ x: 23, y: 5, z: 18 })).toBe(true);
+  expect(g.pick).toBe(false);
+  expect(g.inventory.stone).toBe(0);
+  expect(g.craft("boards")).toBe(false);
+  g.creative = false;
+  expect(
+    g.place({ x: 15, y: 6, z: 21 }, "board", { x: 22.5, y: 5, z: 20.5 }),
+  ).toBe(false);
+});
+it("creative retains body collision, world boundaries and immutable foundation", () => {
+  const g = new Game();
+  g.creative = true;
+  const p = { x: 20.5, y: 5.01, z: 20.5 };
+  expect(g.place({ x: 20, y: 5, z: 20 }, "board", p)).toBe(false);
+  expect(g.place({ x: 40, y: 5, z: 20 }, "board", p)).toBe(false);
+  expect(g.place({ x: 20, y: 0, z: 20 }, "board", p)).toBe(false);
+  expect(g.mine({ x: 20, y: 0, z: 20 })).toBe(false);
+});
+it("creative mode roundtrips, old saves default to gathering and malformed mode is rejected", () => {
+  const g = new Game();
+  g.creative = true;
+  g.inventory.wood = 3;
+  const raw = encodeSave(g, { x: 20.5, y: 12, z: 20.5 });
+  const loaded = decodeSave(raw)!;
+  expect(loaded.game.creative).toBe(true);
+  expect(loaded.player.y).toBe(12);
+  expect(loaded.game.inventory.wood).toBe(3);
+  const old = JSON.parse(raw);
+  delete old.creative;
+  expect(decodeSave(JSON.stringify(old))!.game.creative).toBe(false);
+  old.creative = "yes";
+  expect(decodeSave(JSON.stringify(old))).toBe(null);
+});
+it("flight rises, descends and hovers while solid ceilings and floors stop movement", () => {
+  const w = new World();
+  let p = { x: 20.5, y: 5.01, z: 20.5 };
+  for (let i = 0; i < 20; i++) p = flightStep(w, p, 1, 0.05);
+  expect(p.y).toBeCloseTo(10.01);
+  expect(flightStep(w, p, 0, 0.1).y).toBe(p.y);
+  w.set(20, 12, 20, "board");
+  for (let i = 0; i < 30; i++) p = flightStep(w, p, 1, 0.05);
+  expect(w.collides(p)).toBe(false);
+  expect(p.y).toBeLessThan(10.3);
+  for (let i = 0; i < 100; i++) p = flightStep(w, p, -1, 0.05);
+  expect(p.y).toBeGreaterThanOrEqual(5);
+  expect(w.collides(p)).toBe(false);
+});
+it("flight stays inside the save-compatible height cap and ignores invalid input", () => {
+  const w = new World();
+  const p = { x: 20.5, y: HEIGHT + 2.9, z: 20.5 };
+  expect(flightStep(w, p, 1, 1000).y).toBe(HEIGHT + 3);
+  expect(flightStep(w, p, 1, -1)).toEqual(p);
+  expect(flightStep(w, p, NaN, 0.05)).toEqual(p);
+});

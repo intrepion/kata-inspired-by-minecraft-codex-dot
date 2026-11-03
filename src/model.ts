@@ -167,6 +167,7 @@ export class Game {
   world: World;
   inventory = emptyInventory();
   pick = false;
+  creative = false;
   gatheredStone = false;
   get placedBoards() {
     return [...this.world.edits.values()].filter((b) => b === "board").length;
@@ -179,16 +180,21 @@ export class Game {
   }
   mine(p: Point) {
     const b = this.world.get(p.x, p.y, p.z);
-    if (b === "air" || b === "bedrock" || (b === "stone" && !this.pick))
+    if (
+      b === "air" ||
+      b === "bedrock" ||
+      (b === "stone" && !this.pick && !this.creative)
+    )
       return false;
     if (!this.world.set(p.x, p.y, p.z, "air")) return false;
     const item = b === "grass" ? "dirt" : (b as Item);
-    this.inventory[item]++;
+    if (!this.creative) this.inventory[item]++;
     if (b === "stone") this.gatheredStone = true;
     return true;
   }
   canCraft(id: Recipe) {
     return (
+      !this.creative &&
       Object.hasOwn(recipes, id) &&
       !(id === "pick" && this.pick) &&
       Object.entries(recipes[id].cost).every(
@@ -210,7 +216,7 @@ export class Game {
     if (
       !validPoint(player) ||
       !items.includes(item) ||
-      this.inventory[item] <= 0 ||
+      (!this.creative && this.inventory[item] <= 0) ||
       this.world.get(p.x, p.y, p.z) !== "air"
     )
       return false;
@@ -224,7 +230,7 @@ export class Game {
     )
       return false;
     if (!this.world.set(p.x, p.y, p.z, item)) return false;
-    this.inventory[item]--;
+    if (!this.creative) this.inventory[item]--;
     return true;
   }
 }
@@ -234,6 +240,7 @@ export function encodeSave(game: Game, player: Point) {
     seed: game.world.seed,
     inventory: game.inventory,
     pick: game.pick,
+    creative: game.creative,
     gatheredStone: game.gatheredStone,
     placedBoards: game.placedBoards,
     placedGlow: game.placedGlow,
@@ -251,6 +258,7 @@ export function decodeSave(raw: string): { game: Game; player: Point } | null {
       s.version !== 1 ||
       !count(s.seed) ||
       typeof s.pick !== "boolean" ||
+      (s.creative !== undefined && typeof s.creative !== "boolean") ||
       (s.gatheredStone !== undefined && typeof s.gatheredStone !== "boolean") ||
       !count(s.placedBoards) ||
       !count(s.placedGlow) ||
@@ -285,6 +293,7 @@ export function decodeSave(raw: string): { game: Game; player: Point } | null {
     }
     game.inventory = { ...s.inventory };
     game.pick = s.pick;
+    game.creative = s.creative ?? false;
     game.gatheredStone =
       s.gatheredStone ?? (s.inventory.stone > 0 || game.placedGlow > 0);
     if (
@@ -299,4 +308,32 @@ export function decodeSave(raw: string): { game: Game; player: Point } | null {
   } catch {
     return null;
   }
+}
+
+// Flight keeps ordinary body collision and the save-compatible vertical bounds.
+export function flightStep(
+  world: World,
+  player: Point,
+  direction: number,
+  dt: number,
+): Point {
+  if (
+    !validPoint(player) ||
+    !Number.isFinite(direction) ||
+    !Number.isFinite(dt) ||
+    dt <= 0
+  )
+    return player;
+  const distance = Math.max(-1, Math.min(1, direction)) * 5 * Math.min(dt, 0.1);
+  const steps = Math.max(1, Math.ceil(Math.abs(distance) / 0.1));
+  let p = player;
+  for (let i = 0; i < steps; i++) {
+    const next = {
+      ...p,
+      y: Math.max(1, Math.min(HEIGHT + 3, p.y + distance / steps)),
+    };
+    if (world.collides(next)) break;
+    p = next;
+  }
+  return p;
 }

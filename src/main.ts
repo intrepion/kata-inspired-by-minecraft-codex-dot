@@ -2,6 +2,7 @@ import * as THREE from "three";
 import {
   Game,
   World,
+  flightStep,
   items,
   recipes,
   encodeSave,
@@ -35,7 +36,7 @@ const labels: Record<Item, string> = {
 };
 const slots: Item[] = ["wood", "stone", "dirt", "board", "glow", "leaf"];
 const app = document.querySelector<HTMLDivElement>("#app")!;
-app.innerHTML = `<div id="brand"><small>A small world. A new beginning.</small><strong>Hearthwild</strong></div><aside id="journey" class="glass"></aside><div id="top"><button id="craft">Craft · E</button><button id="pause">Pause · Esc</button></div><div id="crosshair"></div><div id="target"></div><div id="toast" role="status"></div><div id="bottom"><div id="hotbar" class="glass"></div><p id="hint">WASD move · Mouse / arrows look · Space jump · Click / F gather · Right click / G place · 1–6 select</p></div><div id="touch"><div class="pad"><span></span><button data-key="KeyW">↑</button><span></span><button data-key="KeyA">←</button><button data-key="KeyS">↓</button><button data-key="KeyD">→</button></div><div class="actions"><button id="touch-mine">Gather</button><button id="touch-place">Place</button><button data-key="Space">Jump</button></div></div><div id="modal"></div>`;
+app.innerHTML = `<div id="brand"><small>A small world. A new beginning.</small><strong>Hearthwild</strong></div><aside id="journey" class="glass"></aside><div id="top"><button id="craft">Craft · E</button><button id="pause">Pause · Esc</button></div><div id="crosshair"></div><div id="target"></div><div id="toast" role="status"></div><div id="bottom"><div id="hotbar" class="glass"></div><p id="hint">WASD move · Mouse / arrows look · Space jump · Click / F gather · Right click / G place · 1–6 select</p></div><div id="touch"><div class="pad"><span></span><button data-key="KeyW">↑</button><span></span><button data-key="KeyA">←</button><button data-key="KeyS">↓</button><button data-key="KeyD">→</button></div><div class="actions"><button id="touch-mine">Gather</button><button id="touch-place">Place</button><button data-key="Space">Jump / Rise</button><button data-key="ControlLeft" hidden>Descend</button></div></div><div id="modal"></div>`;
 const el = (id: string) => document.getElementById(id)!;
 let game = new Game(),
   player: Point = game.world.safeSpawn();
@@ -267,7 +268,7 @@ function targeting() {
   }
   el("target").textContent =
     active && target
-      ? `${target.block === "grass" ? "Meadow" : target.block === "wood" ? "Timber" : target.block === "stone" && !game.pick ? "Stone · craft a pick" : target.block} · ${game.inventory[selected]} ${labels[selected].toLowerCase()} carried`
+      ? `${target.block === "grass" ? "Meadow" : target.block === "wood" ? "Timber" : target.block === "stone" && !game.pick && !game.creative ? "Stone · craft a pick" : target.block} · ${game.creative ? "∞" : game.inventory[selected]} ${labels[selected].toLowerCase()} carried`
       : "";
 }
 let audio: AudioContext | undefined;
@@ -352,7 +353,7 @@ function hud() {
   el("hotbar").innerHTML = slots
     .map(
       (item, i) =>
-        `<button class="slot ${selected === item ? "selected" : ""}" data-item="${item}" aria-label="Select ${labels[item]}"><em>${i + 1}</em><b>${game.inventory[item]}</b><span class="swatch" style="background:${colors[item]}"></span>${labels[item]}</button>`,
+        `<button class="slot ${selected === item ? "selected" : ""}" data-item="${item}" aria-label="Select ${labels[item]}"><em>${i + 1}</em><b>${game.creative ? "∞" : game.inventory[item]}</b><span class="swatch" style="background:${colors[item]}"></span>${labels[item]}</button>`,
     )
     .join("");
   el("hotbar")
@@ -364,6 +365,13 @@ function hud() {
           hud();
         }),
     );
+  el("hint").textContent = game.creative
+    ? "CREATIVE · WASD move · Space rise · Ctrl descend · F remove · G place · 1–6 select"
+    : "WASD move · Mouse / arrows look · Space jump · F gather · G place · 1–6 select";
+  const descend = document.querySelector<HTMLElement>(
+    '[data-key="ControlLeft"]',
+  );
+  if (descend) descend.hidden = !game.creative;
   const steps = [
     game.inventory.wood >= 4 || game.inventory.board > 0 || game.pick,
     game.pick,
@@ -378,8 +386,9 @@ function hud() {
     "Build a nook: place 6 boards",
     "Craft and place an amber glow",
   ];
-  el("journey").innerHTML =
-    `<small>${steps.every(Boolean) ? "Make yourself at home" : "Your first hearth"}</small><h3>${steps.every(Boolean) ? "The glade is yours." : "From forest to home"}</h3>${texts.map((t, i) => `<p class="${steps[i] ? "done" : ""}">${steps[i] ? "✓" : "○"} ${t}</p>`).join("")}<p>${game.pick ? "⛏ Stoneworker pick equipped" : "Timber → boards → pick → stone"}<br>40 × 40 glade · Seed ${game.world.seed}</p>`;
+  el("journey").innerHTML = game.creative
+    ? `<small>Creative building</small><h3>The glade is your canvas.</h3><p>All six blocks are unlimited. Space rises, Ctrl descends; release both to hover.</p><p>Walls, the foundation and world edges remain solid. Your gathered pack is preserved.</p>`
+    : `<small>${steps.every(Boolean) ? "Make yourself at home" : "Your first hearth"}</small><h3>${steps.every(Boolean) ? "The glade is yours." : "From forest to home"}</h3>${texts.map((t, i) => `<p class="${steps[i] ? "done" : ""}">${steps[i] ? "✓" : "○"} ${t}</p>`).join("")}<p>${game.pick ? "⛏ Stoneworker pick equipped" : "Timber → boards → pick → stone"}<br>40 × 40 glade · Seed ${game.world.seed}</p>`;
 }
 function pause(kind = "pause") {
   active = false;
@@ -417,20 +426,22 @@ function renderPanel() {
     return;
   }
   if (mode === "craft") {
-    panel.innerHTML = `<section class="panel glass"><small>Made from the glade</small><h2>Your pack & workbench</h2><div class="inventory-grid">${items.map((i) => `<div>${labels[i]} <b>${game.inventory[i]}</b></div>`).join("")}</div>${(
-      Object.keys(recipes) as Recipe[]
-    )
-      .map((id) => {
-        const r = recipes[id],
-          cost = Object.entries(r.cost)
-            .map(([i, n]) => `${n} ${labels[i as Item].toLowerCase()}`)
-            .join(" + ");
-        const can = game.canCraft(id);
-        return `<div class="recipe"><div><b>${r.label}</b><span>${cost} → ${id === "boards" ? "8 boards" : id === "glow" ? "2 glow blocks" : game.pick ? "equipped" : "permanent stone tool"}</span></div><button data-recipe="${id}" ${can ? "" : "disabled"}>Craft</button></div>`;
-      })
-      .join(
-        "",
-      )}<p style="font-size:12px">A pick unlocks stone. Place six boards as walls and a roof, then add a glow. Building stays freeform.</p><button id="resume" class="primary">Back to the glade · E</button></section>`;
+    panel.innerHTML = game.creative
+      ? `<section class="panel glass"><small>Creative building</small><h2>Every block is ready.</h2><p>Choose any of the six hotbar blocks and place without a resource cost. Space rises, Ctrl descends; release both to hover. Your gathered pack remains stored for gathering mode.</p><button id="resume" class="primary">Back to the glade · E</button></section>`
+      : `<section class="panel glass"><small>Made from the glade</small><h2>Your pack & workbench</h2><div class="inventory-grid">${items.map((i) => `<div>${labels[i]} <b>${game.creative ? "∞" : game.inventory[i]}</b></div>`).join("")}</div>${(
+          Object.keys(recipes) as Recipe[]
+        )
+          .map((id) => {
+            const r = recipes[id],
+              cost = Object.entries(r.cost)
+                .map(([i, n]) => `${n} ${labels[i as Item].toLowerCase()}`)
+                .join(" + ");
+            const can = game.canCraft(id);
+            return `<div class="recipe"><div><b>${r.label}</b><span>${cost} → ${id === "boards" ? "8 boards" : id === "glow" ? "2 glow blocks" : game.pick ? "equipped" : "permanent stone tool"}</span></div><button data-recipe="${id}" ${can ? "" : "disabled"}>Craft</button></div>`;
+          })
+          .join(
+            "",
+          )}<p style="font-size:12px">A pick unlocks stone. Place six boards as walls and a roof, then add a glow. Building stays freeform.</p><button id="resume" class="primary">Back to the glade · E</button></section>`;
     panel.querySelectorAll<HTMLButtonElement>("[data-recipe]").forEach(
       (b) =>
         (b.onclick = () => {
@@ -444,7 +455,15 @@ function renderPanel() {
         }),
     );
   } else {
-    panel.innerHTML = `<section class="panel glass"><small>The glade can wait</small><h2>A moment by the hearth.</h2><p>${saveMessage}</p><label>Look sensitivity <input id="sensitivity" aria-label="Look sensitivity" type="range" min="0.0007" max="0.005" step="0.0001" value="${sensitivity}"></label><label><input id="sound" type="checkbox" ${sound ? "checked" : ""}> Original woodland tones</label><div class="row"><button id="resume" class="primary">Resume</button><button id="recover">Return to clearing</button><button id="fresh">Start a fresh glade</button></div><div class="controls">WASD move · Space jump · Arrows look · F gather · G place<br>E workbench · 1–6 hotbar · R recover · Esc pause<br>Edits and your pack save locally. No enemies, hunger or time limit.</div></section>`;
+    panel.innerHTML = `<section class="panel glass"><small>The glade can wait</small><h2>A moment by the hearth.</h2><p>${saveMessage}</p><label><input id="creative" type="checkbox" ${game.creative ? "checked" : ""}> Creative building · unlimited blocks & flight</label><p>Creative edits stay in this glade when you return to gathering mode. Space rises, Ctrl descends.</p><label>Look sensitivity <input id="sensitivity" aria-label="Look sensitivity" type="range" min="0.0007" max="0.005" step="0.0001" value="${sensitivity}"></label><label><input id="sound" type="checkbox" ${sound ? "checked" : ""}> Original woodland tones</label><div class="row"><button id="resume" class="primary">Resume</button><button id="recover">Return to clearing</button><button id="fresh">Start a fresh glade</button></div><div class="controls">WASD move · Space jump · Arrows look · F gather · G place<br>E workbench · 1–6 hotbar · R recover · Esc pause<br>Edits and your pack save locally. No enemies, hunger or time limit.</div></section>`;
+    el("creative").onchange = (e) => {
+      game.creative = (e.target as HTMLInputElement).checked;
+      velocityY = 0;
+      grounded = false;
+      dirty = true;
+      hud();
+      persist();
+    };
     el("sensitivity").oninput = (e) => {
       sensitivity = Number((e.target as HTMLInputElement).value);
     };
@@ -605,11 +624,11 @@ function physics(dt: number) {
   if (keys.has("ArrowRight")) yaw -= dt * 1.6;
   if (keys.has("ArrowUp")) pitch = Math.min(1.5, pitch + dt * 1.3);
   if (keys.has("ArrowDown")) pitch = Math.max(-1.5, pitch - dt * 1.3);
-  if (grounded && keys.has("Space")) {
+  if (!game.creative && grounded && keys.has("Space")) {
     velocityY = 7;
     grounded = false;
   }
-  velocityY -= 19 * dt;
+  if (!game.creative) velocityY -= 19 * dt;
   const move = (axis: "x" | "y" | "z", delta: number) => {
     const next = { ...player, [axis]: player[axis] + delta };
     if (!game.world.collides(next)) {
@@ -620,7 +639,16 @@ function physics(dt: number) {
   };
   move("x", dx);
   move("z", dz);
-  if (!move("y", velocityY * dt)) {
+  if (game.creative) {
+    const direction =
+      (keys.has("Space") ? 1 : 0) -
+      (keys.has("ControlLeft") || keys.has("ControlRight") ? 1 : 0);
+    const previousY = player.y;
+    player = flightStep(game.world, player, direction, dt);
+    if (player.y !== previousY) dirty = true;
+    velocityY = 0;
+    grounded = false;
+  } else if (!move("y", velocityY * dt)) {
     grounded = velocityY < 0;
     velocityY = 0;
   } else grounded = false;
